@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TACTICAL OS v5.4 Lite (JP) - iPhone SE2</title>
+<script src="https://cdn.jsdelivr.net/npm/mgrs@1.0.0/dist/mgrs.min.js"></script>
+<!-- iPhone SE（第2世代）向け -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+/* --- 基本スタイル --- */
+html, body { height: 100%; width: 100%; }
+body { background: #000; color: #00ff00; font-family: sans-serif; margin: 0; overflow: hidden; }
+
+.mode-compass #map-ui, .mode-compass #info-map { display: none; }
+.mode-map #compass-full, .mode-map #info-compass { display: none; }
+
+#crosshair {
+  position: absolute; top: 50%; left: 50%; width: 40px; height: 40px;
+  -webkit-transform: translate(-50%, -50%); transform: translate(-50%, -50%);
+  pointer-events: none; z-index: 1001;
+}
+#crosshair::before { content:''; position:absolute; top:19px; left:0; width:40px; height:2px; background:#ff0000; }
+#crosshair::after { content:''; position:absolute; top:0; left:19px; width:2px; height:40px; background:#ff0000; }
+
+#compass-mini {
+  position: absolute; bottom: 35px; left: 20px; width: 90px; height: 90px;
+  z-index: 2000; border: 2px solid #00ff00; border-radius: 50%;
+  background: rgba(0,0,0,0.7); pointer-events: none;
+}
+#mini-val { position: absolute; bottom: -25px; width: 100%; text-align: center; color: #00ff00; font-weight: bold; font-size: 0.9rem; }
+#mini-needle { width: 2px; height: 45px; background: #ff0000; position: absolute; left: 50%; top: 0; -webkit-transform: translateX(-50%); transform: translateX(-50%); z-index: 10; }
+
+.info-panel {
+  position: absolute; top: 10px; right: 10px; z-index: 2000;
+  background: rgba(0,0,0,0.85); padding: 8px; border-radius: 5px; border: 1px solid #00ff00;
+  min-width: 210px; box-shadow: 0 0 10px rgba(0,255,0,0.2);
+}
+.val { font-size: 0.95rem; font-weight: bold; display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; -webkit-align-items: baseline; align-items: baseline; margin-bottom: 4px; }
+.label { font-size: 0.65rem; color: #888; display: block; margin-bottom: 1px; font-weight: bold; }
+
+#compass-full { display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center; height: 100%; }
+#compass-wrap { position: relative; width: 280px; height: 280px; }
+#face-full { width: 280px; height: 280px; border: 4px solid #00ff00; border-radius: 50%; position: relative; box-sizing: border-box; }
+#needle-fixed { width: 4px; height: 140px; background: #ff0000; position: absolute; left: 50%; top: 0; -webkit-transform: translateX(-50%); transform: translateX(-50%); z-index: 10; }
+#mil-display-f { font-size: 3.5rem; margin-top: 40px; font-weight: bold; }
+
+/* 方位記号 */
+.cardinal {
+  position: absolute; width: 100%; height: 100%; top: 0; left: 0;
+  display: -webkit-flex; display: flex; -webkit-justify-content: center; justify-content: center;
+  font-weight: bold; font-family: monospace; pointer-events: none;
+}
+.cardinal span { position: absolute; top: -25px; font-size: 1.2rem; }
+.mini-cardinal span { top: -18px; font-size: 0.8rem; }
+
+#menu-btn { position: absolute; top: 15px; left: 15px; font-size: 2rem; z-index: 4500; cursor: pointer; color: #00ff00; }
+#menu-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 3900; display: none; }
+#side-menu { position: fixed; top: 0; left: -260px; width: 250px; height: 100%; background: #111; z-index: 4000; -webkit-transition: 0.3s; transition: 0.3s; border-right: 1px solid #00ff00; }
+#side-menu.open { left: 0; }
+#map { width: 100%; height: 100%; position: absolute; background: #111; }
+#start-screen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #000; z-index: 9999; display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center; text-align: center; }
+
+.t-btn {
+  position: absolute; z-index: 3000; display: none;
+  background: rgba(0, 20, 0, 0.85); color: #00ff00;
+  border: 1px solid #00ff00; font-family: monospace;
+  font-weight: bold; font-size: 11px; cursor: pointer;
+  padding: 10px 5px; width: 95px; text-align: center;
+}
+.mode-map .t-btn { display: block; }
+#list-btn { bottom: 65px; right: 15px; }
+#input-btn { bottom: 120px; right: 15px; }
+#plot-btn { bottom: 175px; right: 15px; border-width: 2px; }
+
+.ext-panel {
+  position: fixed; top: 50%; left: 50%; -webkit-transform: translate(-50%, -50%); transform: translate(-50%, -50%);
+  width: 85%; max-width: 350px; max-height: 80%;
+  background: #050a05; border: 1px solid #00ff00;
+  z-index: 5000; display: none; -webkit-flex-direction: column; flex-direction: column; padding: 20px;
+  box-shadow: 0 0 30px rgba(0, 255, 0, 0.3); color: #00ff00; box-sizing: border-box;
+}
+.ext-input, .p2p-select { background: #000; color: #00ff00; border: 1px solid #004400; width: 100%; padding: 12px; margin: 10px 0; font-family: monospace; outline: none; box-sizing: border-box; }
+.result-box { background: rgba(0, 30, 0, 0.9); border: 1px solid #00ff00; padding: 15px; margin-top: 10px; }
+.result-line { display: -webkit-flex; display: flex; -webkit-justify-content: space-between; justify-content: space-between; margin-bottom: 5px; }
+.result-val { color: #ffff00; font-weight: bold; }
+.custom-menu-item { cursor: pointer; padding: 15px; border-bottom: 1px solid #003300; color: #00ff00; font-size: 13px; width: 100%; box-sizing: border-box; }
+.direction-marker { width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 20px solid #00ff00; -webkit-filter: drop-shadow(0 0 5px #00ff00); filter: drop-shadow(0 0 5px #00ff00); }
+.custom-marker-html { display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center; color: #ff0000; font-size: 22px; font-weight: bold; text-shadow: 0 0 4px #000; }
+.leaflet-popup-content-wrapper { background: #000 !important; color: #00ff00 !important; border: 1px solid #00ff00; border-radius: 0; }
+@-webkit-keyframes blink { 0% {opacity:1;} 50% {opacity:0.3;} 100% {opacity:1;} }
+@keyframes blink { 0% {opacity:1;} 50% {opacity:0.3;} 100% {opacity:1;} }
+.blink { -webkit-animation: blink 1.5s infinite; animation: blink 1.5s infinite; }
+
+/* --- 小さい画面（幅 340px 以下）用。SE2（幅375px）では使われません --- */
+@media (max-width: 340px) {
+  .info-panel { min-width: 185px; padding: 6px; right: 6px; top: 6px; }
+  .val { font-size: 0.82rem; }
+  .label { font-size: 0.58rem; }
+
+  #compass-full { padding-top: 60px; box-sizing: border-box; }
+  #compass-wrap { width: 210px; height: 210px; }
+  #face-full { width: 210px; height: 210px; border-width: 3px; }
+  #needle-fixed { height: 105px; }
+  #mil-display-f { font-size: 2.4rem; margin-top: 20px; }
+  .cardinal span { font-size: 1rem; top: -22px; }
+
+  #compass-mini { width: 72px; height: 72px; left: 12px; bottom: 30px; }
+  #mini-needle { height: 36px; }
+  #mini-val { font-size: 0.8rem; }
+
+  .t-btn { width: 80px; font-size: 10px; padding: 8px 4px; right: 8px !important; }
+  #list-btn { bottom: 12px !important; }
+  #input-btn { bottom: 56px !important; }
+  #plot-btn { bottom: 112px !important; }
+
+  #side-menu { width: 230px; left: -240px; }
+  .ext-panel { width: 92%; padding: 14px; }
+  .ext-input, .p2p-select { padding: 10px; }
+  #plot-list-content { max-height: 45%; }
+}
+</style>
+</head>
+<body class="mode-compass">
+
+<div id="start-screen" onclick="initSystem()">
+  <h2 style="color:#00ff00; letter-spacing: 4px;">TACTICAL OS LITE</h2>
+  <p class="blink" style="color:#00ff00;">画面をタップしてシステム起動</p>
+</div>
+
+<div id="menu-overlay" onclick="toggleMenu()"></div>
+<div id="menu-btn" onclick="toggleMenu()">&#9776;</div>
+
+<div id="side-menu">
+  <div style="padding:20px; border-bottom:1px solid #333; font-weight:bold; color:#888;">タクティカルメニュー</div>
+  <div class="custom-menu-item" onclick="switchMode('compass')">＞ コンパスモード</div>
+  <div class="custom-menu-item" onclick="switchMode('map')">＞ マップモード</div>
+  <div id="menu-ext-area"></div>
+  <div class="custom-menu-item" onclick="toggleMenu()" style="color:#666;">閉じる</div>
+</div>
+
+<div id="info-compass" class="info-panel">
+  <span class="label">現在地 MGRS</span><span id="self-mgrs-c" class="val">GPS待機中...</span>
+</div>
+
+<div id="info-map" class="info-panel">
+  <span class="label">現在地 MGRS</span>
+  <div class="val"><span id="self-mgrs-m">---</span></div>
+  <span class="label">中心点 MGRS</span>
+  <div class="val"><span id="center-mgrs">---</span></div>
+  <span class="label">距離 / 方位 (中心点まで)</span>
+  <div class="val">
+    <span id="range-val" style="color:#ffff00;">0 m</span>
+    <span id="bearing-val" style="color:#00ff00;">0000 MIL</span>
+  </div>
+</div>
+
+<div id="compass-full">
+  <div id="compass-wrap">
+    <div id="needle-fixed"></div>
+    <div id="face-full"></div>
+  </div>
+  <div id="mil-display-f">0000 MIL</div>
+</div>
+
+<div id="map-ui" style="width:100%; height:100%; position:relative;">
+  <div id="crosshair"></div>
+  <div id="map"></div>
+  <div id="compass-mini">
+    <div id="mini-face-container" style="width:100%; height:100%; position:relative;">
+      <div id="mini-needle"></div>
+      <div id="mini-face" style="width:100%; height:100%; position:relative;"></div>
+    </div>
+    <div id="mini-val">0000</div>
+  </div>
+  <div id="plot-btn" class="t-btn">中心点を<br>マーク</div>
+  <div id="input-btn" class="t-btn">座標を<br>直接入力</div>
+  <div id="list-btn" class="t-btn">ログ一覧</div>
+</div>
+
+<div id="input-panel" class="ext-panel">
+  <div style="font-size:14px; margin-bottom:15px; border-bottom:1px solid #00ff00; padding-bottom:5px;">手動座標プロット</div>
+  <input type="text" id="m-name" class="ext-input" placeholder="名称">
+  <input type="text" id="m-coord" class="ext-input" placeholder="MGRS座標">
+  <div style="display:-webkit-flex; display:flex;">
+    <button class="t-btn" style="position:static; -webkit-flex:1; flex:1; width:auto; background:#004400; margin-right:10px;" onclick="execManualPlot()">決定</button>
+    <button class="t-btn" style="position:static; -webkit-flex:1; flex:1; width:auto;" onclick="closePanel('input-panel')">中止</button>
+  </div>
+</div>
+
+<div id="plot-list-panel" class="ext-panel">
+  <div style="font-size:14px; margin-bottom:15px; border-bottom:1px solid #00ff00; padding-bottom:5px;">タクティカルログ</div>
+  <div id="plot-list-content" style="overflow-y:auto; -webkit-overflow-scrolling:touch; -webkit-flex-grow:1; flex-grow:1; max-height:50%;"></div>
+  <button class="t-btn" style="position:static; width:100%; margin-top:15px;" onclick="closePanel('plot-list-panel')">戻る</button>
+</div>
+
+<div id="p2p-calc-panel" class="ext-panel">
+  <div style="font-size:14px; margin-bottom:15px; border-bottom:1px solid #00ff00; padding-bottom:5px;">2地点間ナビ計算機</div>
+  <label style="font-size:10px;">FROM</label>
+  <select id="p2p-from" class="p2p-select"></select>
+  <label style="font-size:10px;">TO</label>
+  <select id="p2p-to" class="p2p-select"></select>
+  <div class="result-box">
+    <div class="result-line"><span>距離:</span> <span id="res-dist" class="result-val">---</span></div>
+    <div class="result-line"><span>方位:</span> <span id="res-azimuth" class="result-val">---</span></div>
+  </div>
+  <button class="t-btn" style="position:static; width:100%; margin-top:15px;" onclick="closePanel('p2p-calc-panel')">閉じる</button>
+</div>
+
+<script>
+"use strict";
+/* ※ iOS 9 (iPhone 4S) 対応のため ES5 の書き方で統一しています
+   （アロー関数・async/await・padStart などは使っていません） */
+
+var map, selfMarker, selfPos = null, currentDeclination = 0;
+var faceFull = document.getElementById('face-full'), faceMini = document.getElementById('mini-face');
+var savedPlots = [];
+try { savedPlots = JSON.parse(localStorage.getItem('tactical_plots') || '[]'); } catch (e) { savedPlots = []; }
+var markersOnMap = [];
+var initialSet = false;
+
+function pad4(n) {
+  var s = String(n);
+  while (s.length < 4) { s = '0' + s; }
+  return s;
+}
+
+function savePlots() {
+  try { localStorage.setItem('tactical_plots', JSON.stringify(savedPlots)); } catch (e) {}
+}
+
+function drawTicks(el, isMini) {
+  var marks = [{a:0,t:'N'}, {a:90,t:'E'}, {a:180,t:'S'}, {a:270,t:'W'}];
+  marks.forEach(function (m) {
+    var d = document.createElement('div');
+    d.className = isMini ? 'cardinal mini-cardinal' : 'cardinal';
+    d.style.webkitTransform = d.style.transform = 'rotate(' + m.a + 'deg)';
+    d.innerHTML = '<span>' + m.t + '</span>';
+    el.appendChild(d);
+  });
+  for (var i = 0; i < 32; i++) {
+    var d2 = document.createElement('div');
+    var rot = 'rotate(' + (i * 11.25) + 'deg)';
+    d2.style.cssText = 'position:absolute;width:100%;height:100%;-webkit-transform:' + rot + ';transform:' + rot + ';';
+    var t = document.createElement('div');
+    var len = (i % 4) ? (isMini ? 5 : 15) : (isMini ? 10 : 30);
+    t.style.cssText = 'width:' + (isMini ? 1 : 2) + 'px;height:' + len + 'px;background:#00ff00;margin:0 auto;';
+    d2.appendChild(t); el.appendChild(d2);
+  }
+}
+drawTicks(faceFull, false); drawTicks(faceMini, true);
+
+function toggleMenu() {
+  var menu = document.getElementById('side-menu');
+  var overlay = document.getElementById('menu-overlay');
+  var isOpen = !menu.classList.contains('open');
+  if (isOpen) { menu.classList.add('open'); } else { menu.classList.remove('open'); }
+  overlay.style.display = isOpen ? 'block' : 'none';
+}
+
+function switchMode(m) {
+  document.body.className = 'mode-' + m;
+  if (m === 'map' && map) {
+    setTimeout(function () { map.invalidateSize(); if (selfPos) { map.setView(selfPos, 17); } }, 300);
+  }
+  toggleMenu();
+}
+
+function updateHeading(h) {
+  if (h === null || isNaN(h)) { return; }
+  var trueH = (h + currentDeclination + 360) % 360;
+  var milVal = pad4(Math.round(trueH * (6400 / 360)));
+  var rot = 'rotate(-' + trueH + 'deg)';
+  faceFull.style.webkitTransform = faceFull.style.transform = rot;
+  faceMini.style.webkitTransform = faceMini.style.transform = rot;
+  document.getElementById('mil-display-f').innerText = milVal + ' MIL';
+  document.getElementById('mini-val').innerText = milVal;
+  var arrow = document.getElementById('self-arrow');
+  if (arrow) { arrow.style.webkitTransform = arrow.style.transform = 'rotate(' + trueH + 'deg)'; }
+}
+
+function getMilBearing(p1, p2) {
+  var lat1 = p1[0] * Math.PI / 180, lon1 = p1[1] * Math.PI / 180;
+  var lat2 = p2[0] * Math.PI / 180, lon2 = p2[1] * Math.PI / 180;
+  var y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+  var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+  var brg = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  return pad4(Math.round(brg * (6400 / 360)));
+}
+
+window.closePanel = function (id) { document.getElementById(id).style.display = 'none'; };
+
+function addMarkerToMap(p) {
+  var icon = L.divIcon({ className: 'custom-marker-html', html: '<div>●</div>', iconSize: [30, 30] });
+  var marker = L.marker([p.lat, p.lng], { icon: icon }).addTo(map);
+  marker.bindPopup('<b>' + p.name + '</b><br>MGRS: ' + p.mgrs + '<br>距離: ' + p.dist);
+  markersOnMap.push(marker);
+}
+
+function restorePlots() {
+  markersOnMap.forEach(function (m) { map.removeLayer(m); });
+  markersOnMap = [];
+  savedPlots.forEach(function (p) { addMarkerToMap(p); });
+}
+
+function saveAndPlot(lat, lng, mgrsCoord, name) {
+  var dStr = selfPos ? Math.round(L.latLng(selfPos[0], selfPos[1]).distanceTo(L.latLng(lat, lng))) + 'm' : '---';
+  var newPlot = { lat: lat, lng: lng, mgrs: mgrsCoord, name: name, dist: dStr };
+  savedPlots.push(newPlot);
+  savePlots();
+  addMarkerToMap(newPlot);
+}
+
+window.execManualPlot = function () {
+  var name = document.getElementById('m-name').value || '地点';
+  var coord = document.getElementById('m-coord').value.trim();
+  try {
+    var decoded = mgrs.toPoint(coord);
+    saveAndPlot(decoded[1], decoded[0], coord, name);
+    closePanel('input-panel');
+    map.setView([decoded[1], decoded[0]], 17);
+  } catch (e) { alert('座標エラー'); }
+};
+
+function calculateP2P() {
+  var f = document.getElementById('p2p-from').value, t = document.getElementById('p2p-to').value;
+  if (f === '' || t === '' || f === t) { return; }
+  var p1 = L.latLng(savedPlots[f].lat, savedPlots[f].lng), p2 = L.latLng(savedPlots[t].lat, savedPlots[t].lng);
+  var dist = p1.distanceTo(p2);
+  var lat1 = p1.lat * Math.PI / 180, lon1 = p1.lng * Math.PI / 180;
+  var lat2 = p2.lat * Math.PI / 180, lon2 = p2.lng * Math.PI / 180;
+  var y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+  var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+  var brg = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  document.getElementById('res-dist').innerText = dist > 1000 ? (dist / 1000).toFixed(2) + ' km' : Math.round(dist) + ' m';
+  document.getElementById('res-azimuth').innerText = Math.round(brg) + '° (' + pad4(Math.round(brg * 17.77)) + ' MIL)';
+}
+
+/* 方位センサー：iOS(webkitCompassHeading) / Android(alpha) の両対応 */
+function onOrientation(e) {
+  if (typeof e.webkitCompassHeading === 'number') {
+    updateHeading(e.webkitCompassHeading);
+  } else if (typeof e.alpha === 'number') {
+    updateHeading(360 - e.alpha);
+  }
+}
+
+function startOrientation() {
+  if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    /* iOS 13 以降 */
+    DeviceOrientationEvent.requestPermission().then(function (res) {
+      if (res === 'granted') { window.addEventListener('deviceorientation', onOrientation, true); }
+    }).catch(function () {});
+  } else if ('ondeviceorientationabsolute' in window) {
+    /* Android */
+    window.addEventListener('deviceorientationabsolute', onOrientation, true);
+  } else {
+    /* iOS 12 以前（iPhone 4S など） */
+    window.addEventListener('deviceorientation', onOrientation, true);
+  }
+}
+
+function initSystem() {
+  document.getElementById('start-screen').style.display = 'none';
+  startOrientation();
+
+  map = L.map('map', { zoomControl: false, attributionControl: false });
+  L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', { maxZoom: 18 }).addTo(map);
+  selfMarker = L.marker([0, 0], { icon: L.divIcon({ className: 'd-marker', html: '<div id="self-arrow" class="direction-marker"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(map);
+  restorePlots();
+
+  var p2pEntry = document.createElement('div');
+  p2pEntry.className = 'custom-menu-item';
+  p2pEntry.innerHTML = '＞ 2地点間ナビ計算機';
+  p2pEntry.onclick = function () {
+    var opts = savedPlots.map(function (p, i) { return '<option value="' + i + '">' + p.name + '</option>'; }).join('');
+    document.getElementById('p2p-from').innerHTML = opts;
+    document.getElementById('p2p-to').innerHTML = opts;
+    document.getElementById('p2p-calc-panel').style.display = '-webkit-flex';
+    document.getElementById('p2p-calc-panel').style.display = 'flex';
+    toggleMenu();
+  };
+  document.getElementById('menu-ext-area').appendChild(p2pEntry);
+
+  map.on('move', function () {
+    var c = map.getCenter();
+    document.getElementById('center-mgrs').innerText = mgrs.forward([c.lng, c.lat]);
+    if (selfPos) {
+      document.getElementById('range-val').innerText = Math.round(L.latLng(selfPos[0], selfPos[1]).distanceTo(c)) + ' m';
+      document.getElementById('bearing-val').innerText = getMilBearing(selfPos, [c.lat, c.lng]) + ' MIL';
+    }
+  });
+
+  navigator.geolocation.watchPosition(function (pos) {
+    var lat = pos.coords.latitude, lon = pos.coords.longitude;
+    selfPos = [lat, lon];
+    var m = mgrs.forward([lon, lat]);
+    document.getElementById('self-mgrs-c').innerText = m;
+    document.getElementById('self-mgrs-m').innerText = m;
+    if (!initialSet) { map.setView(selfPos, 17); initialSet = true; }
+    selfMarker.setLatLng(selfPos);
+    currentDeclination = -((lat - 37) * 0.2 + (lon - 135) * 0.1 + 7.5);
+  }, function () {}, { enableHighAccuracy: true });
+}
+
+function showPanel(id) {
+  var el = document.getElementById(id);
+  el.style.display = '-webkit-flex';
+  el.style.display = 'flex';
+}
+
+document.getElementById('plot-btn').onclick = function () {
+  var n = prompt('地点名:', '地点-' + (savedPlots.length + 1));
+  if (n) { var c = map.getCenter(); saveAndPlot(c.lat, c.lng, mgrs.forward([c.lng, c.lat]), n); }
+};
+document.getElementById('input-btn').onclick = function () { showPanel('input-panel'); };
+
+function renderPlotList() {
+  document.getElementById('plot-list-content').innerHTML = savedPlots.map(function (p, i) {
+    return '<div style="border-bottom:1px solid #002200; padding:10px 0; display:-webkit-flex; display:flex; -webkit-justify-content:space-between; justify-content:space-between;"><div><b>' + p.name + '</b><br><small>' + p.mgrs + '</small></div><button onclick="deletePlot(' + i + ')" style="color:red; background:none; border:1px solid red;">消去</button></div>';
+  }).join('');
+  showPanel('plot-list-panel');
+}
+document.getElementById('list-btn').onclick = renderPlotList;
+
+window.deletePlot = function (i) {
+  savedPlots.splice(i, 1);
+  savePlots();
+  restorePlots();
+  renderPlotList();
+};
+
+document.getElementById('p2p-from').onchange = calculateP2P;
+document.getElementById('p2p-to').onchange = calculateP2P;
+</script>
+</body>
+</html>
